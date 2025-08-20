@@ -5,6 +5,7 @@
 #include<stdlib.h>
 #include<string.h>
 
+//any tempering with header fileds will make authentication fails during decryption
 #define MAGIC "SBOX"
 #define VERSION 1
 #define SALT_LEN 16
@@ -14,19 +15,29 @@
 #define FILE_ID_LEN 16
 #define HEADER_LEN (4+1+SALT_LEN+NONCE_LEN+FILE_ID_LEN)//which is 61
 
-
+/// @brief Print an error message to stderr and exit(1).
+/// @param msg error message
 static void die(const char *msg){
+    //stderr is error stream used for error reporting 
     fprint(stderr,"%s\n",msg);
     exist(1);
 }
 
+/// @brief Overwrite the memory region p with zeros (via libsodium sodium_memzero or equivalent) and free it.
+/// @param p unsigned char *
+/// @param n length of that
 static void secure_free(void *p,size_t n){
     if(p){
         sodium_memzero(p,n);
         free(p);
     }
 }
-//read the file
+
+/// @brief Open a file, determine its size (via fseek/ftell), allocate a buffer, and read the whole file into memory.
+/// @param path path of the file
+/// @param out 
+/// @param outlen 
+/// @return  if success will return 0 
 static int read_file(const char *path, unsigned char **out,size_t *outlen){
     FILE *f = fopen(path, "rb");
     if(!f)return -1;
@@ -57,6 +68,7 @@ static int read_file(const char *path, unsigned char **out,size_t *outlen){
 
 }
 
+/// @brief Open path for writing (wb) and write the buffer completely.
 static int write_file(const char *path, const unsigned char *bug, size_t len){
     FILE *f= fopen(path, "wb");
     if(!f)return -1;
@@ -67,6 +79,7 @@ static int write_file(const char *path, const unsigned char *bug, size_t len){
     fclose(f);
     return 0;
 }
+
 
 static void derive_key_from_password(const char *pwd, const unsigned char *salt, unsigned char *key){
     const unsigned long long opslimit = crypto_pwhash_OPSLIMIT_MODERATE;
