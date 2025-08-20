@@ -148,6 +148,71 @@ static void encrypt_file(const char *inpath, const char *outpath){
 
 }
 
+static void decrypt_file(const char *inpath, const char *outpath){
+    unsigned char *inbuf = NULL;
+    size_t inlen = 0;
+    if(read_file(inpath, &inbuf,&inlen)!=0)die("read input failed");
+    if(inlen<HEADER_LEN +TAG_LEN ){
+        free(inbuf);
+        die("input too small");
+    }
+    if(memcmp(inbuf+0,MAGIC,4)!=0){
+        free(inbuf);
+        die("bad magic");
+    }
+    if(inbuf[4]!=VERSION){
+        free(inbuf);
+        die("unsupported version");
+    }
+
+    unsigned char salt[SALT_LEN], nonce[NONCE_LEN];
+    memcpy(salt,inbuf+5,SALT_LEN);
+    memcpy(nonce,inbuf+5+SALT_LEN,NONCE_LEN);
+
+    char pwd[512];
+    fprintf(stderr,"enter password: ");
+    if(!fgets(pwd,sizeof pwd,stdin)){
+        free(inbuf);
+        die("no password");
+    }
+    pwd[strcspn(pwd,"\n")]=0;
+
+    unsigned char key[KEY_LEN];
+    derive_key_from_password(pwd,salt,key);
+    sodium_memzero(pwd,sizeof pwd);
+
+    unsigned char *ct = inbuf+ HEADER_LEN;
+    size_t ct_len = inlen- HEADER_LEN;
+    unsigned char *pt = malloc (ct_len);
+    if(!pt){
+        sodium_memzero(key,sizeof key);
+        free(inbuf);
+        die("oom");
+    }
+    unsigned long long actual_pt_len = 0;
+    if (crypto_aead_xchacha20poly1305_ietf_decrypt(
+            pt, &actual_pt_len,
+            NULL,
+            ct, (unsigned long long)ct_len,
+            inbuf, HEADER_LEN, // AAD = header
+            nonce, key) != 0) {
+        sodium_memzero(key, sizeof key);
+        free(inbuf); free(pt);
+        die("decryption failed: bad password or corrupted file");
+    }
+
+    if (write_file(outpath, pt, (size_t)actual_pt_len) != 0) {
+        sodium_memzero(key, sizeof key);
+        free(inbuf); free(pt);
+        die("write output failed");
+    }
+
+    printf("Decrypted %llu bytes -> %zu bytes written\n", actual_pt_len, (size_t)actual_pt_len);
+
+    sodium_memzero(key, sizeof key);
+    free(inbuf); secure_free(pt, (size_t)actual_pt_len);
+}
+
 int main(int argc, char **argv){
     if(sodium_init()<0)die("sodium_init failed");
     if(argc != 4){
